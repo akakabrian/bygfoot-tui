@@ -53,6 +53,15 @@ from .engine import (
     Team,
     simulate_match,
 )
+from .screens import (
+    HelpScreen,
+    LoadScreen,
+    SaveScreen,
+    SellScreen,
+    TrainingScreen,
+    TransferScreen,
+    load_game,
+)
 
 
 # ----- team picker -----
@@ -171,6 +180,12 @@ class BygfootTUI(App):
         Binding("w", "play_week", "Play Week"),
         Binding("m", "view_match", "Match"),
         Binding("t", "choose_tactic", "Tactic"),
+        Binding("b", "transfer_market", "Buy"),
+        Binding("x", "sell_player", "Sell"),
+        Binding("r", "training", "Training"),
+        Binding("s", "save_game", "Save"),
+        Binding("l", "load_game", "Load"),
+        Binding("question_mark", "help", "Help"),
         Binding("1", "tab('tab_table')",    "Table",    show=False),
         Binding("2", "tab('tab_fixtures')", "Fixtures", show=False),
         Binding("3", "tab('tab_squad')",    "Squad",    show=False),
@@ -276,13 +291,43 @@ class BygfootTUI(App):
         assert self.gs is not None
         dt = self.query_one("#league_table", DataTable)
         dt.clear(columns=True)
-        dt.add_columns("#", "Team", "P", "W", "D", "L", "GF", "GA", "GD", "Pts")
-        for i, t in enumerate(self.gs.my_league.table(), start=1):
+        dt.add_columns("#", "Team", "P", "W", "D", "L", "GF", "GA",
+                       "GD", "Pts", "Form")
+        # Zone markers: top ~3 are "qualification", bottom ~3 are "relegation"
+        table = self.gs.my_league.table()
+        n = len(table)
+        top_zone = max(1, n // 7)                # 2-3 top spots
+        rel_zone_start = n - max(1, n // 7)      # last 2-3 spots
+        for i, t in enumerate(table):
+            rank = i + 1
+            if i < top_zone:
+                row_style = "[green]"
+            elif i >= rel_zone_start:
+                row_style = "[red]"
+            else:
+                row_style = ""
             marker = "[b yellow]►[/b yellow]" if t.is_user else " "
-            row = [str(i), f"{marker} {t.name}",
-                   str(t.played), str(t.won), str(t.drew), str(t.lost),
-                   str(t.gf), str(t.ga), str(t.gd), str(t.points)]
-            dt.add_row(*row, key=t.name)
+            form_str = "".join(
+                f"[green]{c}[/green]" if c == "W"
+                else f"[red]{c}[/red]" if c == "L"
+                else f"[yellow]{c}[/yellow]"
+                for c in t.form
+            ) or "-"
+            close = "[/]" if row_style else ""
+            dt.add_row(
+                f"{row_style}{rank}{close}",
+                f"{row_style}{marker} {t.name}{close}",
+                f"{row_style}{t.played}{close}",
+                f"{row_style}{t.won}{close}",
+                f"{row_style}{t.drew}{close}",
+                f"{row_style}{t.lost}{close}",
+                f"{row_style}{t.gf}{close}",
+                f"{row_style}{t.ga}{close}",
+                f"{row_style}{t.gd}{close}",
+                f"{row_style}{t.points}{close}",
+                form_str,
+                key=t.name,
+            )
 
     def _refresh_fixtures(self) -> None:
         assert self.gs is not None
@@ -519,6 +564,47 @@ class BygfootTUI(App):
         if tactic and self.gs is not None and tactic in TACTICS:
             self.gs.my_team.tactic = tactic
             self.refresh_all()
+
+    # ---- screens ----
+
+    def action_help(self) -> None:
+        self.push_screen(HelpScreen())
+
+    def action_transfer_market(self) -> None:
+        if self.gs is None:
+            return
+        self.push_screen(TransferScreen(self.gs),
+                         lambda _res: self.refresh_all())
+
+    def action_sell_player(self) -> None:
+        if self.gs is None:
+            return
+        self.push_screen(SellScreen(self.gs),
+                         lambda _res: self.refresh_all())
+
+    def action_training(self) -> None:
+        if self.gs is None:
+            return
+        self.push_screen(TrainingScreen(self.gs),
+                         lambda _res: self.refresh_all())
+
+    def action_save_game(self) -> None:
+        if self.gs is None:
+            return
+        self.push_screen(SaveScreen(self.gs))
+
+    def action_load_game(self) -> None:
+        self.push_screen(LoadScreen(), self._on_load)
+
+    def _on_load(self, path) -> None:
+        if path is None:
+            return
+        try:
+            self.gs = load_game(path)
+        except Exception as e:  # noqa: BLE001 — user-visible
+            self.notify(f"load failed: {e}", severity="error")
+            return
+        self.refresh_all()
 
 
 def run() -> None:

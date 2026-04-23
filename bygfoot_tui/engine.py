@@ -95,6 +95,9 @@ class Team:
     lost: int = 0
     gf: int = 0
     ga: int = 0
+    # Recent match results — W/D/L chars; last 5 only for the UI's
+    # form-guide column.
+    form: list[str] = field(default_factory=list)
 
     @property
     def points(self) -> int:
@@ -394,12 +397,18 @@ def simulate_match(home: Team, away: Team, rng: random.Random,
     if result.outcome == "H":
         home.won += 1
         away.lost += 1
+        home.form = (home.form + ["W"])[-5:]
+        away.form = (away.form + ["L"])[-5:]
     elif result.outcome == "A":
         away.won += 1
         home.lost += 1
+        home.form = (home.form + ["L"])[-5:]
+        away.form = (away.form + ["W"])[-5:]
     else:
         home.drew += 1
         away.drew += 1
+        home.form = (home.form + ["D"])[-5:]
+        away.form = (away.form + ["D"])[-5:]
     return result
 
 
@@ -429,6 +438,8 @@ class GameState:
     week: int = 1             # 1-based; advances after each match-week
     season: int = 1
     commentary_templates: list[str] = field(default_factory=list)
+    training_regime: str = "normal"
+    training_log: list[str] = field(default_factory=list)
 
     @classmethod
     def new(cls, country_sid: str, league_sid: str, team_idx: int,
@@ -525,6 +536,11 @@ class GameState:
                     # incentivise promotion pushes.
                     ticket = max(200, int(t.avg_talent * 0.15))
                     t.cash += ticket - wage_bill
+        # User-team training lines accumulate for the Training screen
+        # to show. Keep last 20.
+        new_lines = train_team(self, self.my_team, self.training_regime)
+        if new_lines:
+            self.training_log = (self.training_log + new_lines)[-20:]
         return out
 
     def season_over(self) -> bool:
@@ -596,6 +612,7 @@ class GameState:
             for t in lg.teams:
                 t.played = t.won = t.drew = t.lost = 0
                 t.gf = t.ga = 0
+                t.form = []
                 for p in t.players:
                     p.goals = p.assists = 0
                     p.yellow = p.red = p.games = 0
@@ -619,3 +636,111 @@ def iter_results(gs: GameState, weeks: int) -> Iterator[list[MatchResult]]:
         if gs.season_over():
             gs.end_season()
         yield gs.play_current_week()
+
+
+# ----- transfer market -----
+
+def transfer_listing(gs: GameState, size: int = 30) -> list[tuple[Team, Player]]:
+    """Players currently up for grabs across all CPU teams. We rotate a
+    subset of every CPU team's fringe players (least-used starters +
+    youngest) so the list stays interesting and reflects the season
+    state. Excludes the user team.
+    """
+    pool: list[tuple[Team, Player]] = []
+    for lg in gs.leagues.values():
+        for t in lg.teams:
+            if t.is_user:
+                continue
+            # Skip teams with already-thin squads (< 16 players).
+            if len(t.players) < 16:
+                continue
+            # Candidates: low skill, young high-talent, or old veterans.
+            # Sort by skill ascending, take bottom 2 per team.
+            candidates = sorted(t.players, key=lambda p: p.skill)[:2]
+            for p in candidates:
+                pool.append((t, p))
+    gs.rng.shuffle(pool)
+    return pool[:size]
+
+
+def buy_player(gs: GameState, seller: Team, player: Player) -> tuple[bool, str]:
+    """Attempt to sign `player` from `seller` to the user team.
+    Returns (ok, reason). Transfer fee = player.value * 1.2; user must
+    have cash. Rejected if user squad already at 25."""
+    user = gs.my_team
+    if seller is user:
+        return False, "already on your team"
+    if len(user.players) >= 25:
+        return False, "squad full (25)"
+    fee = int(player.value * 1.2)
+    if user.cash < fee:
+        return False, f"can't afford £{fee:,}k (have £{user.cash:,}k)"
+    if player not in seller.players:
+        return False, "player no longer available"
+    seller.players.remove(player)
+    user.players.append(player)
+    user.cash -= fee
+    seller.cash += fee
+    return True, f"signed {player.name} for £{fee:,}k"
+
+
+def sell_player(gs: GameState, player: Player) -> tuple[bool, str]:
+    """List a user player on the market — an AI team may buy. For
+    simplicity we always find a buyer with probability 0.7, paying
+    90% of value. Returns (ok, reason)."""
+    user = gs.my_team
+    if player not in user.players:
+        return False, "not on your squad"
+    if len(user.players) <= 16:
+        return False, "squad too thin to sell (min 16)"
+    # Find an AI team in-league that is short in this position and
+    # willing to pay up.
+    for lg in gs.leagues.values():
+        for t in lg.teams:
+            if t.is_user or len(t.players) >= 24:
+                continue
+            pos_count = sum(1 for p in t.players if p.position == player.position)
+            # Poorly-stocked teams at this position are buyers.
+            if pos_count < 3 and gs.rng.random() < 0.7:
+                fee = int(player.value * 0.9)
+                user.players.remove(player)
+                user.cash += fee
+                t.players.append(player)
+                t.cash = max(0, t.cash - fee)
+                return True, f"sold {player.name} to {t.name} for £{fee:,}k"
+    return False, "no buyer found this week"
+
+
+# ----- training -----
+
+TRAINING_REGIMES = {
+    "light":   (0.15, 0.5),   # (skill gain stddev, injury risk mult)
+    "normal":  (0.30, 1.0),
+    "hard":    (0.55, 2.2),
+}
+
+
+def train_team(gs: GameState, team: Team, regime: str = "normal") -> list[str]:
+    """Weekly training tick. Returns log lines describing what happened.
+    - `light`: minimal skill gain, lower injury risk
+    - `normal`: moderate gain (default)
+    - `hard`: bigger gain but higher injury risk"""
+    gain_sigma, inj_mult = TRAINING_REGIMES.get(regime,
+                                                TRAINING_REGIMES["normal"])
+    lines: list[str] = []
+    for p in team.players:
+        if not p.available:
+            continue
+        # Skill grows toward talent, slower as age climbs.
+        room = p.talent - p.skill
+        if room > 0:
+            growth = gs.rng.gauss(gain_sigma, gain_sigma / 2)
+            if growth > 0 and gs.rng.random() < min(0.35, room / 40):
+                p.skill = min(p.talent, p.skill + 1)
+                lines.append(f"{p.name} sharper (+1 skill, now {p.skill}).")
+        # Training injury.
+        if gs.rng.random() < 0.002 * inj_mult:
+            weeks = gs.rng.randint(1, 3)
+            p.injury_weeks = weeks
+            lines.append(f"{p.name} strained in training — out {weeks}w.")
+    return lines

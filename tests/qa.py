@@ -57,8 +57,8 @@ async def s_status_bar_populated(app, pilot):
 async def s_table_has_20_teams(app, pilot):
     dt = app.query_one("#league_table", DataTable)
     assert dt.row_count == 20, f"table rows = {dt.row_count}, expected 20"
-    # 10 columns (#, Team, P, W, D, L, GF, GA, GD, Pts)
-    assert len(dt.columns) == 10, f"columns = {len(dt.columns)}"
+    # 11 columns (#, Team, P, W, D, L, GF, GA, GD, Pts, Form)
+    assert len(dt.columns) == 11, f"columns = {len(dt.columns)}"
 
 
 async def s_fixtures_show_user_team(app, pilot):
@@ -245,6 +245,124 @@ async def s_view_match_populates_log(app, pilot):
     assert app.gs.week == 2
 
 
+async def s_help_screen_opens(app, pilot):
+    await pilot.press("question_mark")
+    await pilot.pause()
+    assert app.screen.__class__.__name__ == "HelpScreen"
+    await pilot.press("escape")
+    await pilot.pause()
+
+
+async def s_transfer_screen_opens(app, pilot):
+    await pilot.press("b")
+    await pilot.pause()
+    assert app.screen.__class__.__name__ == "TransferScreen"
+    await pilot.press("escape")
+    await pilot.pause()
+
+
+async def s_sell_screen_opens(app, pilot):
+    await pilot.press("x")
+    await pilot.pause()
+    assert app.screen.__class__.__name__ == "SellScreen"
+    await pilot.press("escape")
+    await pilot.pause()
+
+
+async def s_training_screen_opens(app, pilot):
+    await pilot.press("r")
+    await pilot.pause()
+    assert app.screen.__class__.__name__ == "TrainingScreen"
+    await pilot.press("escape")
+    await pilot.pause()
+
+
+async def s_transfer_listing_not_empty(app, pilot):
+    from bygfoot_tui.engine import transfer_listing
+    listings = transfer_listing(app.gs, size=20)
+    assert len(listings) > 0, "empty transfer market"
+    seller, player = listings[0]
+    assert not seller.is_user, "user team listed as seller"
+
+
+async def s_buy_player_succeeds(app, pilot):
+    from bygfoot_tui.engine import transfer_listing, buy_player
+    listings = transfer_listing(app.gs, size=30)
+    # Find an affordable one.
+    app.gs.my_team.cash = 50000  # flush user for the test
+    for seller, p in listings:
+        ok, reason = buy_player(app.gs, seller, p)
+        if ok:
+            assert p in app.gs.my_team.players
+            assert p not in seller.players
+            return
+    assert False, "no player affordable to buy"
+
+
+async def s_sell_player_lists(app, pilot):
+    from bygfoot_tui.engine import sell_player
+    # Pick a bottom-skill squad player.
+    p = sorted(app.gs.my_team.players, key=lambda p: p.skill)[0]
+    # Sell attempts may fail stochastically; try up to 5 times.
+    for _ in range(5):
+        ok, reason = sell_player(app.gs, p)
+        if ok:
+            assert p not in app.gs.my_team.players
+            return
+    # If no buyer found across 5 attempts, that's still valid behaviour
+    # — assert the reason string is sensible.
+    assert "buyer" in reason or "thin" in reason or "squad" in reason
+
+
+async def s_save_load_round_trip(app, pilot):
+    """Save current state, mutate, load, verify state restored."""
+    import tempfile
+    from bygfoot_tui.screens import save_game, load_game
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "test.json"
+        original_cash = app.gs.my_team.cash
+        original_season = app.gs.season
+        save_game(app.gs, path)
+        assert path.exists()
+        assert path.stat().st_size > 1000, "save too small"
+        # Mutate.
+        app.gs.my_team.cash = 12345
+        app.gs.season = 99
+        # Load.
+        loaded = load_game(path)
+        assert loaded.my_team.cash == original_cash
+        assert loaded.season == original_season
+
+
+async def s_training_affects_skill_over_time(app, pilot):
+    """Hard training over many weeks should shift average skill upward for
+    players with room to grow (skill < talent)."""
+    # Pick a youngish squad; compute starting average "room" util.
+    team = app.gs.my_team
+    app.gs.training_regime = "hard"
+    improvements = 0
+    for _ in range(20):
+        before = sum(p.skill for p in team.players)
+        app.gs.play_current_week()
+        after = sum(p.skill for p in team.players)
+        if after > before:
+            improvements += 1
+    # Over 20 weeks of hard training on 22 players, at least a few
+    # should have gained. 0 would indicate a broken path.
+    assert improvements > 0, f"no skill gains in 20 weeks of hard training"
+
+
+async def s_form_column_tracks_results(app, pilot):
+    """After 5 weeks, user team's form column has 5 entries."""
+    for _ in range(5):
+        await pilot.press("w")
+        await pilot.pause()
+    form = app.gs.my_team.form
+    assert len(form) == 5, f"form = {form}"
+    for c in form:
+        assert c in ("W", "D", "L"), c
+
+
 async def s_multiple_weeks_no_duplicate_fixtures(app, pilot):
     """Regression: advancing multiple weeks must not double-record results
     or lose the week slot."""
@@ -331,6 +449,16 @@ SCENARIOS: list[Scenario] = [
     Scenario("xi_has_11_with_one_gk", s_xi_has_11),
     Scenario("player_names_nonempty_and_spaced", s_player_name_not_empty),
     Scenario("view_match_streams_to_log", s_view_match_populates_log),
+    Scenario("help_screen_opens", s_help_screen_opens),
+    Scenario("transfer_screen_opens", s_transfer_screen_opens),
+    Scenario("sell_screen_opens", s_sell_screen_opens),
+    Scenario("training_screen_opens", s_training_screen_opens),
+    Scenario("transfer_listing_not_empty", s_transfer_listing_not_empty),
+    Scenario("buy_player_succeeds_when_affordable", s_buy_player_succeeds),
+    Scenario("sell_player_returns_reason", s_sell_player_lists),
+    Scenario("save_load_round_trip", s_save_load_round_trip),
+    Scenario("hard_training_yields_gains", s_training_affects_skill_over_time),
+    Scenario("form_column_tracks_recent_results", s_form_column_tracks_results),
     Scenario("multiple_weeks_no_dup_fixtures", s_multiple_weeks_no_duplicate_fixtures),
     Scenario("play_week_past_season_end_safe", s_play_week_past_season_end_safe),
     Scenario("unknown_tactic_does_not_crash", s_unknown_tactic_does_not_crash),
