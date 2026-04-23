@@ -1,0 +1,125 @@
+/* Bygfoot TUI — Textual stylesheet. Table-heavy UI; lean visuals so the
+   data reads cleanly. */
+
+Screen {
+    background: rgb(10, 16, 12);
+    color: rgb(225, 230, 220);
+}
+
+Header {
+    background: rgb(24, 48, 30);
+    color: rgb(240, 240, 220);
+}
+
+Footer {
+    background: rgb(24, 38, 28);
+    color: rgb(210, 220, 210);
+}
+
+#status_bar {
+    dock: top;
+    height: 1;
+    background: rgb(18, 32, 22);
+    color: rgb(230, 230, 200);
+    padding: 0 1;
+}
+
+#main_container {
+    layout: vertical;
+}
+
+TabbedContent {
+    height: 1fr;
+}
+
+TabPane {
+    padding: 0 1;
+}
+
+DataTable {
+    height: 1fr;
+}
+
+DataTable > .datatable--header {
+    background: rgb(30, 60, 40);
+    color: rgb(240, 240, 200);
+    text-style: bold;
+}
+
+DataTable > .datatable--cursor {
+    background: rgb(70, 110, 80);
+    color: rgb(255, 255, 230);
+    text-style: bold;
+}
+
+DataTable > .datatable--hover {
+    background: rgb(40, 70, 50);
+}
+
+#user_row {
+    background: rgb(40, 70, 50);
+    color: rgb(255, 235, 140);
+    text-style: bold;
+}
+
+#match_log {
+    height: 1fr;
+    border: solid rgb(60, 90, 60);
+    background: rgb(8, 14, 10);
+}
+
+#match_scoreboard {
+    dock: top;
+    height: 3;
+    content-align: center middle;
+    background: rgb(24, 42, 28);
+    text-style: bold;
+    color: rgb(255, 240, 180);
+}
+
+#match_controls {
+    dock: bottom;
+    height: 1;
+    background: rgb(18, 32, 22);
+    color: rgb(210, 220, 200);
+    padding: 0 1;
+}
+
+TeamPickerScreen {
+    align: center middle;
+}
+
+#picker_panel {
+    width: 80%;
+    height: 80%;
+    border: solid rgb(80, 130, 90);
+    background: rgb(12, 22, 16);
+    padding: 1 2;
+}
+
+#picker_title {
+    text-style: bold;
+    color: rgb(255, 240, 180);
+    padding-bottom: 1;
+}
+
+.dim {
+    color: rgb(130, 150, 140);
+}
+
+.bright {
+    color: rgb(255, 255, 220);
+    text-style: bold;
+}
+
+.win {
+    color: rgb(120, 220, 140);
+}
+
+.loss {
+    color: rgb(220, 120, 120);
+}
+
+.draw {
+    color: rgb(220, 220, 160);
+}

@@ -145,14 +145,19 @@ def _generate_player(rng: random.Random, avg_talent: int, names_file: str,
                      position: int | None = None,
                      age: int | None = None) -> Player:
     """Create a player whose skill/talent cluster around the league's
-    `avg_talent`. We convert Bygfoot's 0-9999 talent into 0-99 skill by
-    dividing by 100 — gives us the same relative spread."""
-    base = max(20, min(95, avg_talent // 100))
-    talent = max(20, min(99, int(rng.gauss(base, 10))))
-    # Young players skilled below their talent; older near it.
+    `avg_talent`. Bygfoot's average_talent scale is 0-9999; we rescale
+    to 20-90 so a top-flight league (8700) gives players clustered in
+    the low 80s — fitness + form then wobble that into the real
+    effective_skill range on match day."""
+    # 8700 → ~75, 5000 → ~45, 10000 → ~85. Wider per-player Gaussian
+    # (stddev 14) so within a squad there are clear stars and role
+    # players — which makes the XI strength differ more between teams.
+    base = max(25, min(85, int(avg_talent * 0.0085 + 5)))
+    talent = max(25, min(95, int(rng.gauss(base, 14))))
     age = age or rng.randint(17, 35)
-    skill_gap = max(0, 30 - age) + rng.randint(-4, 4)
-    skill = max(20, min(talent, talent - skill_gap // 2))
+    # Young players skilled below their talent; older near it.
+    skill_gap = max(0, 28 - age) + rng.randint(-3, 3)
+    skill = max(25, min(talent, talent - max(0, skill_gap) // 2))
     position = (position if position is not None
                 else rng.choices(
                     [POS_GK, POS_DEF, POS_MID, POS_FWD],
@@ -284,24 +289,27 @@ def simulate_match(home: Team, away: Team, rng: random.Random,
                 f"HALF TIME — {home.name} {result.home_goals} - "
                 f"{result.away_goals} {away.name}."
             ))
-        # Event chance per minute (tuned so ~15-20 events per match).
-        if rng.random() > 0.22:
+        # Event chance per minute (tuned so ~25-30 events per match
+        # including flavour passes — with real-football goal rate).
+        if rng.random() > 0.32:
             continue
         # Which team has possession for this event?
         attacking_home = rng.random() < hs_share
         attacker = home if attacking_home else away
         defender = away if attacking_home else home
         team_idx = 0 if attacking_home else 1
-        # Resolve event type
+        # Resolve event type. Distribution aims for ~12 shots/team
+        # and ~2.7 goals/match. Shots 40% of events, flavour 45%,
+        # fouls 12%, injuries 3%.
         r = rng.random()
-        if r < 0.55:
+        if r < 0.45:
             # Passing move / build-up — flavour text only
             if commentary:
                 text = rng.choice(commentary)
             else:
                 text = f"{attacker.name} build down the flank."
             result.events.append(MatchEvent(minute, team_idx, "pass", text))
-        elif r < 0.80:
+        elif r < 0.85:
             # Shot attempt
             if attacking_home:
                 result.home_shots += 1
@@ -313,7 +321,11 @@ def simulate_match(home: Team, away: Team, rng: random.Random,
                        if p.position == POS_GK), None)
             gk_skill = gk.effective_skill if gk else 40
             att = attacker.team_strength
-            p_goal = 0.30 * (att / (att + gk_skill * 0.8))
+            # Real football: ~2.7 goals per match from ~12 shots
+            # on-target per side → ~22% per shot. Tuned to that
+            # baseline; skill differential skews a dominant side up
+            # to ~32%, and the weaker side down to ~14%.
+            p_goal = 0.40 * (att / (att + gk_skill * 1.05))
             if rng.random() < p_goal:
                 scorer = _pick_goalscorer(attacker, rng)
                 name = scorer.name if scorer else "Unknown"
@@ -503,11 +515,16 @@ class GameState:
                     p.fitness = min(100, p.fitness + self.rng.randint(6, 14))
                     if p.injury_weeks > 0:
                         p.injury_weeks -= 1
-                # Pay weekly wages for user team (simple finance hook)
+                # Pay weekly wages + ticket income for user team.
+                # Ticket income scales with league average talent so a
+                # top-flight team isn't immediately bankrupt.
                 if t.is_user:
-                    t.cash -= sum(p.wage for p in t.players)
-                    # Ticket income proxy: small flat
-                    t.cash += 120
+                    wage_bill = sum(p.wage for p in t.players)
+                    # Rough: income > wages in a healthy top-flight
+                    # team, slight deficit in lower leagues to
+                    # incentivise promotion pushes.
+                    ticket = max(200, int(t.avg_talent * 0.15))
+                    t.cash += ticket - wage_bill
         return out
 
     def season_over(self) -> bool:
