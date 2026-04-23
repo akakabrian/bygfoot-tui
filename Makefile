@@ -24,8 +24,13 @@ test: venv
 test-only: venv
 	.venv/bin/python -m tests.qa $(PAT)
 
+test-api: venv
+	.venv/bin/python -m tests.api_qa
+
 test-perf: venv
 	.venv/bin/python -m tests.perf
+
+test-all: test test-api test-perf
 
 clean:
 	rm -rf .venv __pycache__ bygfoot_tui/__pycache__ tests/__pycache__

@@ -198,13 +198,18 @@ class BygfootTUI(App):
     # Seed is injectable for reproducible tests.
     def __init__(self, seed: int = 42, country: str = "england",
                  league: str = "england1", team_idx: int = 0,
-                 autostart: bool = True) -> None:
+                 autostart: bool = True, agent: bool = False,
+                 agent_port: int = 7655) -> None:
         super().__init__()
         self._seed = seed
         self._initial = (country, league, team_idx)
         self._autostart = autostart
         self.gs: GameState | None = None
         self._playing_match = False
+        self._agent_enabled = agent
+        self._agent_port = agent_port
+        self._agent_server = None
+        self._last_status_text = ""
 
     # ---- layout ----
 
@@ -252,6 +257,11 @@ class BygfootTUI(App):
         self.gs = GameState.new(country_sid, league_sid, team_idx,
                                 seed=self._seed)
         self.refresh_all()
+        if self._agent_enabled and self._agent_server is None:
+            from .agent_api import AgentServer
+            self._agent_server = AgentServer(self.gs, port=self._agent_port)
+            self.run_worker(self._agent_server.start(), exclusive=True,
+                            name="agent_api_start", group="agent")
 
     # ---- refreshers ----
 
