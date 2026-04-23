@@ -8,10 +8,9 @@ from typing import Any
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container
 from textual.screen import ModalScreen
 from textual.widgets import (
-    Button,
     DataTable,
     Input,
     Label,
@@ -22,7 +21,7 @@ from textual.widgets import (
 )
 
 from . import engine
-from .engine import TACTICS, TRAINING_REGIMES
+from .engine import TRAINING_REGIMES
 
 
 SAVE_DIR = Path.home() / ".local" / "share" / "bygfoot-tui" / "saves"

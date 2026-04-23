@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import time
 
-from bygfoot_tui.engine import GameState, simulate_match, quickstart
+from bygfoot_tui.engine import GameState, simulate_match
 
 
 def bench(label: str, fn, n: int = 1) -> float:

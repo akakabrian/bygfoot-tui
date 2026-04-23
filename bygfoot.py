@@ -46,7 +46,7 @@ async def _run_headless(args) -> None:
     await server.start()
     print(f"[bygfoot-tui] agent API up on http://127.0.0.1:{args.agent_port}")
     print(f"    team: {gs.my_team.name}  league: {gs.my_league.name}")
-    print(f"    Ctrl-C to stop.")
+    print("    Ctrl-C to stop.")
     try:
         while True:
             await asyncio.sleep(3600)

@@ -19,25 +19,19 @@ whenever the user switches tabs or advances a week.
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 
-from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
-from textual.reactive import reactive
-from textual.screen import ModalScreen, Screen
+from textual.screen import ModalScreen
 from textual.widgets import (
-    Button,
     DataTable,
     Footer,
     Header,
-    Input,
     Label,
     ListItem,
     ListView,
     RichLog,
-    Select,
     Static,
     TabbedContent,
     TabPane,
@@ -46,11 +40,9 @@ from textual.widgets import (
 from . import data
 from .engine import (
     GameState,
-    MatchEvent,
     MatchResult,
     POS_NAMES,
     TACTICS,
-    Team,
     simulate_match,
 )
 from .screens import (
@@ -501,16 +493,16 @@ class BygfootTUI(App):
         result = simulate_match(home, away, gs.rng, gs.commentary_templates)
         self._playing_match = True
         try:
+            home_score = 0
+            away_score = 0
             for ev in result.events:
                 if ev.kind == "goal":
                     if ev.team_idx == 0:
-                        pass  # scoreboard already tracks via result
+                        home_score += 1
+                    else:
+                        away_score += 1
                     sb.update(
-                        f"{home.name}  "
-                        f"{sum(1 for e in result.events[:result.events.index(ev)+1] if e.kind == 'goal' and e.team_idx == 0)}"
-                        f" — "
-                        f"{sum(1 for e in result.events[:result.events.index(ev)+1] if e.kind == 'goal' and e.team_idx == 1)}"
-                        f"  {away.name}"
+                        f"{home.name}  {home_score} — {away_score}  {away.name}"
                     )
                 prefix = f"[dim]{ev.minute:>2}'[/dim] "
                 if ev.kind == "goal":
@@ -551,6 +543,7 @@ class BygfootTUI(App):
                 other_lg.results[wk].append(other_res)
             gs.week += 1
             # Weekly upkeep (copy of play_current_week's tail)
+            from .engine import train_team
             for l in gs.leagues.values():
                 for t in l.teams:
                     for p in t.players:
@@ -561,6 +554,10 @@ class BygfootTUI(App):
                         wage_bill = sum(p.wage for p in t.players)
                         ticket = max(200, int(t.avg_talent * 0.15))
                         t.cash += ticket - wage_bill
+            # Mirror play_current_week: run training and record log lines.
+            new_lines = train_team(gs, gs.my_team, gs.training_regime)
+            if new_lines:
+                gs.training_log = (gs.training_log + new_lines)[-20:]
             self.refresh_all()
         finally:
             self._playing_match = False

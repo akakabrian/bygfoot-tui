@@ -58,7 +58,7 @@ class Player:
     skill: int               # 0-99 current
     talent: int              # 0-99 ceiling
     fitness: int = 100       # 0-100
-    form: int = 5            # -3 .. +3 (re-centred at 0 each match-week)
+    form: int = 0            # -3 .. +3 (re-centred at 0 each match-week)
     goals: int = 0
     assists: int = 0
     yellow: int = 0

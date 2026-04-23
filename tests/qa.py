@@ -16,10 +16,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable
 
-from textual.widgets import DataTable, RichLog, Static, TabbedContent
+from textual.widgets import DataTable, RichLog, TabbedContent
 
 from bygfoot_tui.app import BygfootTUI
-from bygfoot_tui.engine import GameState, POS_NAMES, TACTICS
 
 
 OUT = Path(__file__).resolve().parent / "out"
@@ -94,7 +93,6 @@ async def s_play_week_logs_user_match(app, pilot):
 
 
 async def s_play_week_updates_table(app, pilot):
-    dt = app.query_one("#league_table", DataTable)
     # Before any play, everyone has 0 points and 0 played.
     await pilot.press("w")
     await pilot.pause()
@@ -304,6 +302,7 @@ async def s_sell_player_lists(app, pilot):
     # Pick a bottom-skill squad player.
     p = sorted(app.gs.my_team.players, key=lambda p: p.skill)[0]
     # Sell attempts may fail stochastically; try up to 5 times.
+    reason = "no attempts made"
     for _ in range(5):
         ok, reason = sell_player(app.gs, p)
         if ok:
@@ -349,7 +348,7 @@ async def s_training_affects_skill_over_time(app, pilot):
             improvements += 1
     # Over 20 weeks of hard training on 22 players, at least a few
     # should have gained. 0 would indicate a broken path.
-    assert improvements > 0, f"no skill gains in 20 weeks of hard training"
+    assert improvements > 0, "no skill gains in 20 weeks of hard training"
 
 
 async def s_form_column_tracks_results(app, pilot):
