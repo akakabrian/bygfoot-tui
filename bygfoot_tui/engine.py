@@ -532,50 +532,58 @@ class GameState:
 
     def end_season(self) -> list[str]:
         """Promote/relegate, reset stats, rebuild fixtures. Returns
-        human-readable season-end headlines."""
+        human-readable season-end headlines.
+
+        Pairing is symmetric: for each (higher, lower) league pair we
+        swap exactly k = min(rel_slots, prom_slots) teams both ways so
+        league sizes stay constant. Without this clamp you'd end up
+        with 19-team Premiership + 25-team Championship (Bygfoot XMLs
+        often have mismatched prom/rel counts).
+        """
         country_def = data.country(self.country_sid)
         lines: list[str] = []
         if country_def is None:
             return lines
-        # Compute promotions & relegations per league (user-visible order).
-        promotions: dict[str, list[Team]] = {}   # dest_sid → teams coming up
-        relegations: dict[str, list[Team]] = {}  # dest_sid → teams going down
-        for lg_def in country_def.leagues:
-            lg = self.leagues.get(lg_def.sid)
-            if lg is None:
+        # Map sid → league def for quick lookup.
+        defs = {ld.sid: ld for ld in country_def.leagues}
+        # Determine symmetric exchange count for each (higher → lower)
+        # pair. A "pair" is a higher league whose rel_target names a
+        # lower league that promotes back up to this sid.
+        for higher_sid, higher_def in defs.items():
+            if not higher_def.rel_target:
                 continue
-            table = lg.table()
-            if lg_def.rel_target and lg_def.rel_rank_start:
-                going_down = table[lg_def.rel_rank_start - 1:]
-                relegations.setdefault(lg_def.rel_target, []).extend(going_down)
-                for t in going_down:
-                    lines.append(f"{t.name} relegated from {lg.name}.")
-            if lg_def.prom_target and lg_def.prom_rank_end:
-                going_up = table[:lg_def.prom_rank_end]
-                promotions.setdefault(lg_def.prom_target, []).extend(going_up)
-                for t in going_up:
-                    lines.append(f"{t.name} promoted from {lg.name}.")
-        # Swap teams between leagues by league_sid
-        for dest_sid, teams_up in promotions.items():
-            dest = self.leagues.get(dest_sid)
-            if dest is None:
+            lower_sid = higher_def.rel_target
+            lower_def = defs.get(lower_sid)
+            if lower_def is None:
                 continue
-            for t in teams_up:
-                old = self.leagues[t.league_sid]
-                if t in old.teams:
-                    old.teams.remove(t)
-                t.league_sid = dest_sid
-                dest.teams.append(t)
-        for dest_sid, teams_down in relegations.items():
-            dest = self.leagues.get(dest_sid)
-            if dest is None:
+            # Exchange count = min of the two intended slot sizes so we
+            # preserve league sizes. Most XMLs match (both =3), but the
+            # Premiership→Championship pair is 3 down / 2 up which would
+            # unbalance sizes after the first season.
+            rel_want = max(0, len(self.leagues[higher_sid].teams)
+                           - higher_def.rel_rank_start + 1) \
+                if higher_def.rel_rank_start else 0
+            prom_want = lower_def.prom_rank_end or 0
+            k = min(rel_want, prom_want)
+            if k <= 0:
                 continue
-            for t in teams_down:
-                old = self.leagues[t.league_sid]
-                if t in old.teams:
-                    old.teams.remove(t)
-                t.league_sid = dest_sid
-                dest.teams.append(t)
+            higher = self.leagues[higher_sid]
+            lower = self.leagues[lower_sid]
+            going_down = higher.table()[-k:]          # bottom k of higher
+            going_up = lower.table()[:k]              # top k of lower
+            # Swap.
+            for t in going_down:
+                if t in higher.teams:
+                    higher.teams.remove(t)
+                t.league_sid = lower_sid
+                lower.teams.append(t)
+                lines.append(f"{t.name} relegated from {higher.name}.")
+            for t in going_up:
+                if t in lower.teams:
+                    lower.teams.remove(t)
+                t.league_sid = higher_sid
+                higher.teams.append(t)
+                lines.append(f"{t.name} promoted from {lower.name}.")
         # If user's team changed leagues, update pointers.
         for sid, lg in self.leagues.items():
             for idx, t in enumerate(lg.teams):

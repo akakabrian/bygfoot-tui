@@ -245,6 +245,61 @@ async def s_view_match_populates_log(app, pilot):
     assert app.gs.week == 2
 
 
+async def s_multiple_weeks_no_duplicate_fixtures(app, pilot):
+    """Regression: advancing multiple weeks must not double-record results
+    or lose the week slot."""
+    gs = app.gs
+    for _ in range(5):
+        await pilot.press("w")
+        await pilot.pause()
+    # Each played team should have exactly 5 played.
+    for t in gs.my_league.teams:
+        assert t.played == 5, f"{t.name} played {t.played}"
+
+
+async def s_play_week_past_season_end_safe(app, pilot):
+    """Pressing w after season end shouldn't crash or decrement anything."""
+    gs = app.gs
+    # Jump to just past the season.
+    while not gs.season_over():
+        gs.play_current_week()
+    # Now press w — should run end_season + reset.
+    await pilot.press("w")
+    await pilot.pause()
+    assert gs.season >= 2
+
+
+async def s_unknown_tactic_does_not_crash(app, pilot):
+    """Robustness: accept_tactic with a garbage value ignored silently."""
+    before = app.gs.my_team.tactic
+    app._on_tactic(None)               # no-op cancel
+    app._on_tactic("not-a-tactic")     # invalid
+    assert app.gs.my_team.tactic == before
+
+
+async def s_squad_with_all_injured_still_selects_xi(app, pilot):
+    """Robustness: if every player is injured, XI returns what's available
+    without crashing (even if short)."""
+    for p in app.gs.my_team.players:
+        p.injury_weeks = 2
+    xi = app.gs.my_team.starting_xi()
+    # With everyone injured, XI is empty — that's fine, no crash is the contract.
+    assert isinstance(xi, list)
+
+
+async def s_view_match_deterministic_with_seed(app, pilot):
+    """Same seed should produce identical first-match results."""
+    from bygfoot_tui.engine import quickstart, simulate_match
+    a = quickstart(seed=999)
+    b = quickstart(seed=999)
+    ra = simulate_match(a.my_league.teams[0], a.my_league.teams[1],
+                        a.rng, a.commentary_templates)
+    rb = simulate_match(b.my_league.teams[0], b.my_league.teams[1],
+                        b.rng, b.commentary_templates)
+    assert ra.home_goals == rb.home_goals
+    assert ra.away_goals == rb.away_goals
+
+
 async def s_picker_autostart_off_opens(app, pilot):
     """A fresh app with autostart=False pushes the picker and pauses the
     game-state until a selection is made. Start it manually mid-test."""
@@ -276,6 +331,11 @@ SCENARIOS: list[Scenario] = [
     Scenario("xi_has_11_with_one_gk", s_xi_has_11),
     Scenario("player_names_nonempty_and_spaced", s_player_name_not_empty),
     Scenario("view_match_streams_to_log", s_view_match_populates_log),
+    Scenario("multiple_weeks_no_dup_fixtures", s_multiple_weeks_no_duplicate_fixtures),
+    Scenario("play_week_past_season_end_safe", s_play_week_past_season_end_safe),
+    Scenario("unknown_tactic_does_not_crash", s_unknown_tactic_does_not_crash),
+    Scenario("all_injured_xi_no_crash", s_squad_with_all_injured_still_selects_xi),
+    Scenario("seed_determinism", s_view_match_deterministic_with_seed),
     Scenario("picker_screen_opens_when_autostart_off", s_picker_autostart_off_opens),
 ]
 
